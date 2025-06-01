@@ -176,6 +176,34 @@ RC Db::create_table(const char *table_name, span<const AttrInfoSqlNode> attribut
   return RC::SUCCESS;
 }
 
+RC Db::drop_table(const char *table_name)
+{
+  // 查找表是否存在
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("Table %s not found.", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  // 生成表文件路径
+  string table_file_path = table_meta_file(path_.c_str(), table_name);
+  
+  // 获取表对象并执行删除操作
+  Table *table = iter->second;
+  RC rc = table->drop(table_file_path.c_str());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to drop table %s. Error code: %d", table_name, rc);
+    return rc;
+  }
+
+  // 从内存中移除表对象
+  delete table;
+  opened_tables_.erase(iter);
+  
+  LOG_INFO("Drop table success. table name=%s", table_name);
+  return RC::SUCCESS;
+}
+
 Table *Db::find_table(const char *table_name) const
 {
   unordered_map<string, Table *>::const_iterator iter = opened_tables_.find(table_name);

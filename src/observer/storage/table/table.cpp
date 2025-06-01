@@ -128,6 +128,66 @@ RC Table::create(Db *db, int32_t table_id, const char *path, const char *name, c
   return rc;
 }
 
+RC Table::drop(const char *path)
+{
+  // 同步脏页确保数据一致性
+  RC rc = sync();
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to sync table before drop. Error code: %d", rc);
+    return rc;
+  }
+
+  // 删除表元数据文件
+  if (path && ::remove(path) < 0) {
+    LOG_ERROR("Failed to delete table meta file. File: %s, Error: %s", 
+              path, strerror(errno));
+    return RC::INTERNAL;
+  }
+  LOG_INFO("Start dropping table: %s", path ? path : name());
+
+  // 处理数据文件删除（先关闭文件，再从缓冲区移除）
+  string data_file = table_data_file(db_->path().c_str(), table_meta_.name());
+  BufferPoolManager &bpm = db_->buffer_pool_manager();
+  
+  // 先调用 close_file 确保文件状态正确
+  if (data_buffer_pool_ != nullptr) {
+    data_buffer_pool_->close_file();
+  }
+  
+  // 再从缓冲区管理器中移除文件
+  rc = bpm.remove_file(data_file.c_str());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("Failed to remove data file. File: %s, RC: %s", 
+              data_file.c_str(), strrc(rc));
+  }
+
+  // 释放记录处理器资源（添加删除操作）
+  if (record_handler_ != nullptr) {
+    delete record_handler_;
+    record_handler_ = nullptr;
+  }
+
+  // 释放数据缓冲区池资源（明确删除操作）
+  if (data_buffer_pool_ != nullptr) {
+    delete data_buffer_pool_;
+    data_buffer_pool_ = nullptr;
+  }
+
+  // 安全清理索引资源
+  LOG_INFO("Removing index files for table: %s", name());
+  auto it = indexes_.begin();
+  while (it != indexes_.end()) {
+    Index *index = *it;
+    LOG_DEBUG("Dropping index: %s", index->index_meta().name());
+    index->destroy();
+    delete index;
+    it = indexes_.erase(it);
+  }
+
+  LOG_INFO("Table dropped successfully: %s", name());
+  return RC::SUCCESS;
+}
+
 RC Table::open(Db *db, const char *meta_file, const char *base_dir)
 {
   // 加载元数据文件

@@ -48,7 +48,7 @@ public:
   {
     return RC::UNSUPPORTED;
   }
-
+  virtual RC destroy() = 0;
   virtual bool is_vector_index() { return false; }
 
   const IndexMeta &index_meta() const { return index_meta_; }

@@ -348,6 +348,12 @@ RC DiskBufferPool::get_this_page(PageNum page_num, Frame **frame)
   return RC::SUCCESS;
 }
 
+RC DiskBufferPool::remove_file()
+{
+  bp_manager_.remove_file(file_name_.c_str());
+  return RC::SUCCESS;
+}
+
 RC DiskBufferPool::allocate_page(Frame **frame)
 {
   RC rc = RC::SUCCESS;
@@ -887,6 +893,13 @@ RC BufferPoolManager::close_file(const char *_file_name)
   lock_.unlock();
 
   delete bp;
+  return RC::SUCCESS;
+}
+
+RC BufferPoolManager::remove_file(const char *file_name)
+{
+  close_file(file_name);
+  ::remove(file_name);
   return RC::SUCCESS;
 }
 

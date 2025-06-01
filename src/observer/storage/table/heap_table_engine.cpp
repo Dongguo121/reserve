@@ -23,10 +23,11 @@ HeapTableEngine::~HeapTableEngine()
     record_handler_ = nullptr;
   }
 
-  if (data_buffer_pool_ != nullptr) {
-    data_buffer_pool_->close_file();
-    data_buffer_pool_ = nullptr;
+  if (!file_closed_ && data_buffer_pool_ != nullptr) {
+    file_closed_ = true;
+    db_->buffer_pool_manager().remove_file(table_data_file(db_->path().c_str(), table_meta_->name()).c_str());
   }
+  data_buffer_pool_ = nullptr;
 
   for (vector<Index *>::iterator it = indexes_.begin(); it != indexes_.end(); ++it) {
     Index *index = *it;
