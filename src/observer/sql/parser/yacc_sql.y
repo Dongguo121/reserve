@@ -73,6 +73,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         INDEX
         CALC
         SELECT
+        LIKE
         DESC
         SHOW
         SYNC
@@ -675,6 +676,22 @@ condition:
       delete $1;
       delete $3;
     }
+    | rel_attr LIKE SSS
+    {
+      // 设置左属性
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;  // 假设是值语义或适当的内存管理
+      // 设置右值
+      $$->right_is_attr = 0;
+      // 安全处理字符串字面值
+      const char *str = $3;
+      // 提取并转义字符串内容
+      std::string pattern = common::substr(str, 1, strlen(str) - 2);
+      $$->right_value.set_string(pattern.c_str());
+      // 设置操作类型
+      $$->comp = LIKE_OP;
+      delete $1;
+    }
     ;
 
 comp_op:
@@ -684,6 +701,7 @@ comp_op:
     | LE { $$ = LESS_EQUAL; }
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
+    | LIKE { $$ = LIKE_OP; }
     ;
 
 // your code here

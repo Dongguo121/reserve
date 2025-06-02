@@ -13,8 +13,10 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "sql/expr/expression.h"
+#include "common/type/attr_type.h"
 #include "sql/expr/tuple.h"
 #include "sql/expr/arithmetic_operator.hpp"
+#include "sql/parser/parse_defs.h"
 
 using namespace std;
 
@@ -124,6 +126,23 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   RC  rc         = RC::SUCCESS;
   int cmp_result = left.compare(right);
   result         = false;
+
+  if (comp_ == LIKE_OP) {
+    
+    if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
+      LOG_WARN("LIKE operator can only be used with string values");
+      return RC::INTERNAL;
+    }
+    
+    std::string str_str = left.get_string();
+    const char *str = str_str.c_str();
+
+    std::string pattern_str = right.get_string();
+    const char *pattern = pattern_str.c_str();
+
+    result = like_match(str, pattern);
+    return RC::SUCCESS;
+  }
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -150,6 +169,50 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   }
 
   return rc;
+}
+
+bool ComparisonExpr::like_match(const char* str, const char* pattern) const
+{
+    // 快速路径：无通配符
+    if (strchr(pattern, '_') == nullptr && 
+        strchr(pattern, '%') == nullptr) {
+      return strcmp(str, pattern) == 0;
+    }
+
+    const char *s = str, *p = pattern;
+    const char *s_back = nullptr, *p_back = nullptr;
+
+    while (*s) {
+      if (*p == '%') {
+        // 跳过连续%
+        while (*(p+1) == '%') p++;
+        p_back = ++p;
+        s_back = s;
+        continue;
+      }
+    
+      if (!*p) break;  // 模式结束但字符串还有内容
+    
+      if ((*p == '_' && *s) || *p == *s) {
+        p++;
+        s++;
+        continue;
+      }
+    
+      if (s_back) {
+        s = ++s_back;
+        p = p_back;
+        continue;
+      }
+    
+      return false;
+    }
+
+    // 处理尾部%
+    while (*p == '%') p++;
+  
+    // 两者都应到达结尾
+    return *s == '\0' && *p == '\0';
 }
 
 RC ComparisonExpr::try_get_value(Value &cell) const
