@@ -127,7 +127,7 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   int cmp_result = left.compare(right);
   result         = false;
 
-  if (comp_ == LIKE_OP) {
+  if (comp_ == LIKE_OP || comp_ == NOT_LIKE_OP) {
     
     if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
       LOG_WARN("LIKE operator can only be used with string values");
@@ -140,9 +140,12 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
     std::string pattern_str = right.get_string();
     const char *pattern = pattern_str.c_str();
 
-    result = like_match(str, pattern);
+    bool like_result = like_match(str, pattern);
+
+    result = (comp_ == LIKE_OP) ? like_result : !like_result;
     return RC::SUCCESS;
   }
+
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -171,49 +174,50 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   return rc;
 }
 
-bool ComparisonExpr::like_match(const char* str, const char* pattern) const
+bool ComparisonExpr::like_match(const char *str, const char *pattern) const
 {
-    // 快速路径：无通配符
-    if (strchr(pattern, '_') == nullptr && 
-        strchr(pattern, '%') == nullptr) {
-      return strcmp(str, pattern) == 0;
+    // 基本情况：如果模式为空，只有当字符串也为空时匹配成功
+    if (*pattern == '\0') {
+        return *str == '\0';
     }
 
-    const char *s = str, *p = pattern;
-    const char *s_back = nullptr, *p_back = nullptr;
-
-    while (*s) {
-      if (*p == '%') {
-        // 跳过连续%
-        while (*(p+1) == '%') p++;
-        p_back = ++p;
-        s_back = s;
-        continue;
-      }
-    
-      if (!*p) break;  // 模式结束但字符串还有内容
-    
-      if ((*p == '_' && *s) || *p == *s) {
-        p++;
-        s++;
-        continue;
-      }
-    
-      if (s_back) {
-        s = ++s_back;
-        p = p_back;
-        continue;
-      }
-    
-      return false;
+    // 处理下一个字符是 % 的情况
+    if (*pattern == '%') {
+        // 跳过连续的 %，因为多个连续的 % 等效于一个 %
+        while (*(pattern + 1) == '%') {
+            pattern++;
+        }
+        
+        // % 可以匹配零个或多个字符，因此尝试所有可能的匹配长度
+        while (*str != '\0') {
+            if (like_match(str, pattern + 1)) {
+                return true;
+            }
+            str++;
+        }
+        
+        // 尝试 % 匹配零个字符的情况
+        return like_match(str, pattern + 1);
     }
 
-    // 处理尾部%
-    while (*p == '%') p++;
-  
-    // 两者都应到达结尾
-    return *s == '\0' && *p == '\0';
-}
+    // 处理下一个字符是 _ 的情况
+    if (*pattern == '_') {
+        // _ 必须匹配一个字符，因此字符串不能为空
+        if (*str == '\0') {
+            return false;
+        }
+        // 继续匹配剩余的字符串和模式
+        return like_match(str + 1, pattern + 1);
+    }
+
+    // 处理普通字符：必须与当前字符匹配，并且剩余部分也匹配
+    if (*str != '\0' && *str == *pattern) {
+        return like_match(str + 1, pattern + 1);
+    }
+
+    // 其他情况：匹配失败
+    return false;
+} 
 
 RC ComparisonExpr::try_get_value(Value &cell) const
 {

@@ -127,49 +127,35 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, unordered_map<st
 
   filter_unit->set_comp(comp);
 
-  // 1. 提前获取类型（消除重复代码）
-  AttrType left_type = condition.left_is_attr ?
-      filter_unit->left().field.attr_type() : 
-      filter_unit->left().value.attr_type();
-  
-  AttrType right_type = condition.right_is_attr ? 
-      filter_unit->right().field.attr_type() : 
-      filter_unit->right().value.attr_type();
-  // 2. 通用错误处理函数
-  auto handle_error = [&](RC code, const char* msg) {
-     LOG_WARN("%s", msg);
-    delete filter_unit;
-    filter_unit = nullptr;
-    return code;  
-  };
+  if (comp == LIKE_OP || comp == NOT_LIKE_OP) {
+    // 获取左右操作数的实际类型
+    AttrType left_type = condition.left_is_attr ? 
+        filter_unit->left().field.attr_type() : 
+        filter_unit->left().value.attr_type();
+    
+    AttrType right_type = condition.right_is_attr ? 
+        filter_unit->right().field.attr_type() : 
+        filter_unit->right().value.attr_type();
 
-  // 3. LIKE 操作特殊处理
-  if (comp == LIKE_OP) {  
-    // 类型检查
+    // LIKE 操作要求两边都是字符串类型
     if (left_type != AttrType::CHARS || right_type != AttrType::CHARS) {
-      return handle_error(RC::SCHEMA_FIELD_TYPE_MISMATCH,
-          "LIKE operation requires string type on both sides");
+      LOG_WARN("LIKE operation requires string type on both sides");
+      delete filter_unit;
+      filter_unit = nullptr;
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
 
-    // 模式有效性检查
+    // 如果右侧是值，检查是否是有效的LIKE模式
     if (!condition.right_is_attr) {
-      const std::string &pattern = condition.right_value.get_string();
-    
-      // 检查空模式
-      if (pattern.empty()) {
-        return handle_error(RC::INVALID_ARGUMENT, 
-            "LIKE pattern cannot be empty");
+      std::string pattern_str = condition.right_value.get_string();
+      const char *pattern = pattern_str.c_str();
+      if (pattern == nullptr) {
+        LOG_WARN("LIKE pattern cannot be null");
+        delete filter_unit;
+        filter_unit = nullptr;
+        return RC::INVALID_ARGUMENT;
       }
-    
     }
   } 
-  // 4. 非 LIKE 操作的通用检查
-  else {
-    if (left_type != right_type) {
-      return handle_error(RC::SCHEMA_FIELD_TYPE_MISMATCH,
-          ("Type mismatch"));
-    }
-  }
-  // 检查两个类型是否能够比较
   return rc;
 }

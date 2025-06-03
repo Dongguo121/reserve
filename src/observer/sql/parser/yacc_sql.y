@@ -73,7 +73,6 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         INDEX
         CALC
         SELECT
-        LIKE
         DESC
         SHOW
         SYNC
@@ -99,6 +98,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         FROM
         WHERE
         AND
+        NOT
+        LIKE
         SET
         ON
         LOAD
@@ -678,18 +679,28 @@ condition:
     }
     | rel_attr LIKE SSS
     {
-      // 设置左属性
+      $$ = new ConditionSqlNode;
       $$->left_is_attr = 1;
-      $$->left_attr = *$1;  // 假设是值语义或适当的内存管理
-      // 设置右值
+      $$->left_attr = *$1;
       $$->right_is_attr = 0;
-      // 安全处理字符串字面值
-      const char *str = $3;
-      // 提取并转义字符串内容
-      std::string pattern = common::substr(str, 1, strlen(str) - 2);
-      $$->right_value.set_string(pattern.c_str());
-      // 设置操作类型
+      char *tmp = common::substr($3, 1, strlen($3) - 2);
+      $$->right_value.set_string(tmp);
+      free(tmp);
       $$->comp = LIKE_OP;
+
+      delete $1;
+    }
+    | rel_attr NOT LIKE SSS
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;
+      $$->right_is_attr = 0;
+      char *tmp = common::substr($4, 1, strlen($4) - 2); 
+      $$->right_value.set_string(tmp);
+      free(tmp);
+      $$->comp = NOT_LIKE_OP;
+
       delete $1;
     }
     ;
@@ -702,6 +713,7 @@ comp_op:
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
     | LIKE { $$ = LIKE_OP; }
+    | NOT LIKE { $$ = NOT_LIKE_OP; }
     ;
 
 // your code here
