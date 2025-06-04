@@ -126,7 +126,7 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   RC  rc         = RC::SUCCESS;
   int cmp_result = left.compare(right);
   result         = false;
-
+  
   if (comp_ == LIKE_OP || comp_ == NOT_LIKE_OP) {
     
     if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
@@ -134,15 +134,11 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
       return RC::INTERNAL;
     }
     
-    std::string str_str = left.get_string();
-    const char *str = str_str.c_str();
+    result = like_match(
+      left.get_string().c_str(), 
+      right.get_string().c_str()
+  );
 
-    std::string pattern_str = right.get_string();
-    const char *pattern = pattern_str.c_str();
-
-    bool like_result = like_match(str, pattern);
-
-    result = (comp_ == LIKE_OP) ? like_result : !like_result;
     return RC::SUCCESS;
   }
 
@@ -176,48 +172,47 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
 
 bool ComparisonExpr::like_match(const char *str, const char *pattern) const
 {
-    // 基本情况：如果模式为空，只有当字符串也为空时匹配成功
-    if (*pattern == '\0') {
-        return *str == '\0';
-    }
+    const char *s_backup = nullptr;  // 用于回溯的字符串位置
+    const char *p_backup = nullptr;  // 用于回溯的模式位置
 
-    // 处理下一个字符是 % 的情况
-    if (*pattern == '%') {
-        // 跳过连续的 %，因为多个连续的 % 等效于一个 %
-        while (*(pattern + 1) == '%') {
-            pattern++;
+    while (*str != '\0') {
+        if (*pattern == '%') {
+            // 跳过连续的 % 通配符
+            while (*(++pattern) == '%') {}
+            
+            // 记录回溯点：当遇到 % 后不匹配时，从这里继续尝试
+            s_backup = str;
+            p_backup = pattern;
+            continue;
         }
         
-        // % 可以匹配零个或多个字符，因此尝试所有可能的匹配长度
-        while (*str != '\0') {
-            if (like_match(str, pattern + 1)) {
-                return true;
-            }
+        // 处理单字符匹配（_ 或相同字符）
+        if (*pattern == '_' || *pattern == *str) {
             str++;
+            pattern++;
+            continue;
         }
         
-        // 尝试 % 匹配零个字符的情况
-        return like_match(str, pattern + 1);
-    }
-
-    // 处理下一个字符是 _ 的情况
-    if (*pattern == '_') {
-        // _ 必须匹配一个字符，因此字符串不能为空
-        if (*str == '\0') {
-            return false;
+        // 当前字符不匹配，尝试回溯到最近的 % 位置
+        if (p_backup != nullptr) {
+            // 回溯：% 匹配一个额外字符后继续尝试
+            str = ++s_backup;
+            pattern = p_backup;
+            continue;
         }
-        // 继续匹配剩余的字符串和模式
-        return like_match(str + 1, pattern + 1);
+        
+        // 无回溯点可用，匹配失败
+        return false;
     }
 
-    // 处理普通字符：必须与当前字符匹配，并且剩余部分也匹配
-    if (*str != '\0' && *str == *pattern) {
-        return like_match(str + 1, pattern + 1);
+    // 处理模式末尾的 % 通配符
+    while (*pattern == '%') {
+        pattern++;
     }
 
-    // 其他情况：匹配失败
-    return false;
-} 
+    // 字符串已结束：仅当模式也结束才算完全匹配
+    return *pattern == '\0';
+}
 
 RC ComparisonExpr::try_get_value(Value &cell) const
 {
